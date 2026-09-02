@@ -1,0 +1,106 @@
+# Bugs found
+
+Add one section per issue. Bug 1 is filled in to show the format — fix it, then write what you changed. Copy the blank template for the rest.
+
+Keep this file in the repo and **commit it** with your fixes.
+
+---
+
+## Bug 1
+
+**How to reproduce:** Open the app. The expense list says “Newest first”. The first row is Wine (7 Mar). Board game (15 Mar) is further down.
+
+**What is wrong:** The list is showing oldest expenses first. Newest should be at the top.
+
+**What I changed:** In `src/components/ExpenseList.jsx`, reversed the comparator to `dateValue(b.date) - dateValue(a.date)`. In `src/lib/format.js`, updated `dateValue` to always return a numeric millisecond timestamp (`new Date(date).getTime()`).
+
+---
+
+## Bug 2
+
+**How to reproduce:** Look at the Balances panel on initial load. Ben and Diya paid more than their consumed share, but are marked in red as "owes $...". Aisha and Carlos consumed more than they paid, but are marked in green as "is owed $...".
+
+**What is wrong:** The logic in `BalancesPanel.jsx` was completely inverted: `bal > 0` was labeled as `"owes"` (with CSS class `owe`), and `bal < 0` was labeled as `"is owed"` (with CSS class `owed`). A positive balance means the group owes that member money; a negative balance means that member owes the group.
+
+**What I changed:** In `src/components/BalancesPanel.jsx`, corrected the conditions so that `bal > 0.005` displays `"is owed ${formatMoney(bal)}"` with class `owed`, and `bal < -0.005` displays `"owes ${formatMoney(-bal)}"` with class `owe`.
+
+---
+
+## Bug 3
+
+**How to reproduce:** Inspect the Uber expense ($60) paid by Diya (id 4) split between Aisha and Ben (ids 1, 2). Check Diya's balance. Diya paid $60 for other people and was not part of the ride, yet $30 ($60 / 2) was deducted from her balance. The sum of all balances did not cancel out to $0.00.
+
+**What is wrong:** In `src/lib/balances.js`, an arbitrary check `if (!(exp.paidBy in shares))` subtracted `Number(exp.amount) / n` from the payer. The specification states: "Paying for other people: Someone can put a cab on their card even if they did not ride. They should get that fare back in full. Only the people who used it should owe a share."
+
+**What I changed:** In `src/lib/balances.js`, removed the deduction block (lines 16–19) and ensured final balances are rounded to 2 decimal places.
+
+---
+
+## Bug 4
+
+**How to reproduce:** In a scenario where a debtor owes an amount exactly equal to what a creditor is owed (e.g. Person A owes $50, Person B is owed $50), check the "Settle up" panel. No transfer is displayed at all, and the settlement never happens.
+
+**What is wrong:** In `src/lib/settle.js`, the loop handled `d.amount > c.amount` and `d.amount < c.amount`, but the `else` branch (when `d.amount === c.amount`) simply incremented `i += 1; j += 1` without recording any transfer in the `transfers` array.
+
+**What I changed:** In `src/lib/settle.js`, updated the settlement loop to determine `amount = Math.min(d.amount, c.amount)`. When `amount > 0.001`, a transfer is recorded, subtracted from both parties, and pointer(s) advance when remaining amounts drop below 0.001. All transfer amounts are also formatted to 2 decimal places.
+
+---
+
+## Bug 5
+
+**How to reproduce:** Split $100 equally among 3 people. Each person was assigned $33.33, totaling $99.99 ($0.01 lost). Or split $20 with custom percentages 33.33%, 33.33%, 33.34%. Each person was assigned $6.67, totaling $20.01 ($0.01 invented).
+
+**What is wrong:** In `src/lib/money.js`, `splitEqual` and `splitByPercent` used basic `.toFixed(2)` rounding per person without accounting for remainder pennies. The specification states: "Those portions together should make up the full bill — the group should not 'lose' or 'invent' money in the rounding."
+
+**What I changed:** In `src/lib/money.js`, rewritten `splitEqual` and `splitByPercent` to work in integer cents (`Math.round(amount * 100)`). Leftover cents are distributed to participants (or those with the largest fractional remainder) so that the sum of individual shares in dollars always equals the exact bill amount.
+
+---
+
+## Bug 6
+
+**How to reproduce:** Sort or filter the expenses (e.g., search for "Board game" or filter by category "Stay"). Click "Delete" on that expense, or edit its amount. A completely different expense is deleted or modified.
+
+**What is wrong:** `ExpenseList.jsx` passed the row's index in the filtered/sorted array to `onDeleteAt(index)` and `onUpdateAt(index, patch)`. The reducer in `store.js` then spliced or patched `state.expenses[action.index]`, which referred to a completely different expense in the master array. Also, rows used `key={index}` which caused stale state when editing.
+
+**What I changed:** In `src/state/store.js`, changed `DELETE_EXPENSE` to filter by `e.id !== action.id`, and `UPDATE_EXPENSE` to match `e.id === action.id`. In `src/components/ExpenseList.jsx` and `src/App.jsx`, passed `expense.id` to delete and update handlers, keyed items by `expense.id`, and synchronized draft amounts via `useEffect`.
+
+---
+
+## Bug 7
+
+**How to reproduce:** Select any member in the "Paid by" dropdown filter (e.g. "Aisha Khan"). All expenses disappear and the list says "No expenses match these filters."
+
+**What is wrong:** In `src/App.jsx`, the filter check was `if (paidBy !== "" && e.paidBy !== paidBy) return false;`. The dropdown `<select>` returns string values (e.g. `"1"`), whereas `e.paidBy` in expense objects is a number (`1`). Because of strict inequality (`1 !== "1"`), every expense was filtered out.
+
+**What I changed:** In `src/App.jsx`, updated the check to compare string values: `if (paidBy !== "" && String(e.paidBy) !== String(paidBy)) return false;`.
+
+---
+
+## Bug 8
+
+**How to reproduce:** Add a new member using the "Add member" form in the Summary card. The total member count increments, but the new member does not appear in the "Paid so far" list.
+
+**What is wrong:** In `src/components/SummaryCards.jsx`, `perPerson` was memoized with `[expenses]` as its only dependency. `members` was omitted, so adding a new member did not trigger recalculation of `perPerson`.
+
+**What I changed:** Added `members` to the dependency array of `perPerson`: `useMemo(..., [members, expenses])`.
+
+---
+
+## Bug 9
+
+**How to reproduce:** Refresh the page after initial load. Expenses stored in `localStorage` have their dates formatted as raw ISO date strings (e.g. `"2026-03-12"`) rather than localized dates (`"12 Mar, 2026"`), and date sorting comparisons return `NaN`.
+
+**What is wrong:** In `src/state/store.js`, `loadState` called `hydrate(seed)` only on the initial run. When `raw` was present in `localStorage`, it called `JSON.parse(raw)` directly without running `hydrate`, leaving `date` as a raw string instead of a `Date` object. In `format.js`, `formatDate` only applied formatting if `date instanceof Date`.
+
+**What I changed:** In `src/state/store.js`, wrapped `JSON.parse(raw)` with `hydrate(...)`. In `src/lib/format.js`, updated `formatDate` and `dateValue` to safely parse and handle both Date instances and string representations without timezone shifts.
+
+---
+
+## Bug 10
+
+**How to reproduce:** When adding an expense with custom percentages (e.g., three people at 33.33%, 33.33%, 33.34%), submitting sometimes displays the error "Percentages must add to 100."
+
+**What is wrong:** In `src/lib/money.js`, `percentsSumTo100` did a strict equality comparison: `values.reduce(...) === 100`. JavaScript floating point addition can evaluate `33.33 + 33.33 + 33.34` or user input to numbers like `100.00000000000001` or `99.99999999999999`.
+
+**What I changed:** In `src/lib/money.js`, updated `percentsSumTo100` to allow an epsilon tolerance: `Math.abs(sum - 100) < 0.01`.
+
